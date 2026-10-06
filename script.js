@@ -82,6 +82,7 @@ let allValidCountries = [];
 let currentTarget = "";
 let iFinishedRound = false;
 let opponentFinishedRound = false;
+
 const microstates = [
     { name: "Vatican", coords: [12.4534, 41.9029] }, { name: "Monaco", coords: [7.4246, 43.7384] },
     { name: "San Marino", coords: [12.4578, 43.9424] }, { name: "Liechtenstein", coords: [9.5209, 47.1410] },
@@ -171,7 +172,6 @@ function setupMultiplayer() {
             showModal("You Win!", "Your opponent clicked the wrong country!", () => location.reload(), true);
             
         } else if (data.type === 'play_again') {
-            // Opponent clicked play again
             resetMultiplayerState();
         }
     });
@@ -218,7 +218,7 @@ function nextTurn() {
 function handleCountryClick(clickedName) {
     if (!currentTarget) return; 
 
-    // NEW FIX: If you already clicked the correct country this round, ignore further clicks
+    // If you already clicked the correct country this round, ignore further clicks
     if (isMultiplayer && iFinishedRound) return; 
 
     if (clickedName === currentTarget) {
@@ -268,6 +268,7 @@ function handleCountryClick(clickedName) {
         }
     }
 }
+
 // --- MAP RENDERING (D3.js) ---
 function drawMap() {
     const svg = d3.select("#map");
