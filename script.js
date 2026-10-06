@@ -1,32 +1,45 @@
 // --- AUDIO SYSTEM (Hybrid) ---
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let audioCtx;
 let lastHoverTime = 0;
 
 const sfxCorrect = new Audio('correct.mp3');
 const sfxWrong = new Audio('wrong.mp3');
 sfxCorrect.volume = 0.8; sfxWrong.volume = 0.8;
 
+// Initialize Audio SAFELY upon user interaction
+function getAudioContext() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+    return audioCtx;
+}
+
 function playSound(type) {
     if (type === 'hover') {
-        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const ctx = getAudioContext();
         if (Date.now() - lastHoverTime < 50) return; 
         lastHoverTime = Date.now();
         
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
         osc.connect(gain);
-        gain.connect(audioCtx.destination);
+        gain.connect(ctx.destination);
         
-        const now = audioCtx.currentTime;
+        const now = ctx.currentTime;
         osc.type = 'sine'; osc.frequency.value = 600;
         gain.gain.setValueAtTime(0.01, now);
         osc.start(now); osc.stop(now + 0.05);
     } 
     else if (type === 'correct') {
-        sfxCorrect.currentTime = 0; sfxCorrect.play();
+        sfxCorrect.currentTime = 0; 
+        sfxCorrect.play().catch(e => console.warn("Audio file missing or blocked", e));
     } 
     else if (type === 'wrong') {
-        sfxWrong.currentTime = 0; sfxWrong.play();
+        sfxWrong.currentTime = 0; 
+        sfxWrong.play().catch(e => console.warn("Audio file missing or blocked", e));
     }
 }
 
@@ -41,7 +54,7 @@ function copyRoomId() {
         const btn = document.getElementById('copy-btn');
         btn.innerText = "Copied!";
         setTimeout(() => btn.innerText = "Copy", 2000);
-    });
+    }).catch(e => alert("Clipboard copy failed. Try copying manually."));
 }
 
 let modalCallback = null;
@@ -50,13 +63,12 @@ function showModal(title, message, callback, isMultiplayerEnd = false) {
     document.getElementById('modal-message').innerText = message;
     document.getElementById('custom-modal').style.display = 'flex';
     
-    // Switch between "OK" and "Quit Room" depending on the game mode
     const btn1 = document.getElementById('modal-btn-1');
     const btnPlayAgain = document.getElementById('modal-btn-play-again');
     
     if (isMultiplayerEnd) {
         btn1.innerText = "Quit Room";
-        btnPlayAgain.style.display = 'block';
+        btnPlayAgain.style.display = 'inline-block';
     } else {
         btn1.innerText = "OK";
         btnPlayAgain.style.display = 'none';
@@ -70,13 +82,19 @@ function closeModal() {
     if (modalCallback) modalCallback();
 }
 
-
 // --- DATA & STATE ---
 let isMultiplayer = false;
 let isHost = false;
 let peer, connection;
 let myScore = 0, opponentScore = 0;
-let highScore = localStorage.getItem('atlasHighScore') || 0;
+let highScore = 0;
+
+// Safe LocalStorage Fetch
+try {
+    highScore = localStorage.getItem('atlasHighScore') || 0;
+} catch (e) {
+    console.warn("LocalStorage is disabled. High score won't be saved.");
+}
 
 let allValidCountries = [];
 let currentTarget = "";
@@ -107,7 +125,7 @@ document.getElementById('lobby-high-score').innerText = highScore;
 document.getElementById('high-score-display').innerText = "High Score: " + highScore;
 
 function initUI() {
-    if (audioCtx.state === 'suspended') audioCtx.resume(); 
+    getAudioContext(); 
     document.getElementById('lobby').style.display = 'none';
     document.getElementById('game-ui').style.display = 'block';
     drawMap();
@@ -202,7 +220,6 @@ function resetMultiplayerState() {
 function nextTurn() {
     if (isMultiplayer && !isHost) return;
     
-    // Reset trackers for the Host
     iFinishedRound = false;
     opponentFinishedRound = false;
 
@@ -217,42 +234,34 @@ function nextTurn() {
 
 function handleCountryClick(clickedName) {
     if (!currentTarget) return; 
-
-    // If you already clicked the correct country this round, ignore further clicks
     if (isMultiplayer && iFinishedRound) return; 
 
     if (clickedName === currentTarget) {
-        // CORRECT
         playSound('correct');
         myScore++;
         document.getElementById('p1-score-text').innerText = "Score: " + myScore;
         
         if (!isMultiplayer) {
-            // Solo Mode
             if (myScore > highScore) {
                 highScore = myScore;
-                localStorage.setItem('atlasHighScore', highScore);
+                try {
+                    localStorage.setItem('atlasHighScore', highScore);
+                } catch(e) {}
                 document.getElementById('high-score-display').innerText = "High Score: " + highScore;
             }
             nextTurn();
         } else {
-            // Multiplayer Mode: Mark that you finished the round
             iFinishedRound = true;
             connection.send({ type: 'score_update', score: myScore });
             
             if (opponentFinishedRound) {
-                // You were the last one to find it!
                 document.getElementById('target-country').innerText = "Both found it! Loading next...";
-                if (isHost) {
-                    setTimeout(nextTurn, 1000); 
-                }
+                if (isHost) setTimeout(nextTurn, 1000); 
             } else {
-                // You found it first, now you have to wait for them.
                 document.getElementById('target-country').innerText = "Waiting for opponent...";
             }
         }
     } else {
-        // WRONG
         playSound('wrong');
         
         if (!isMultiplayer) {
@@ -263,7 +272,6 @@ function handleCountryClick(clickedName) {
             }, false);
         } else {
             connection.send({ type: 'game_over' });
-            // Show modal with the Play Again option (true). If they click Quit, reload page.
             showModal("You Lose!", `Wrong! You clicked ${clickedName}.`, () => location.reload(), true);
         }
     }
@@ -288,7 +296,6 @@ function drawMap() {
         allValidCountries = data.features.map(d => d.properties.name);
         microstates.forEach(m => allValidCountries.push(m.name));
 
-        // Draw Countries (No Tooltips)
         g.selectAll("path")
             .data(data.features)
             .enter()
@@ -298,7 +305,6 @@ function drawMap() {
             .on("mouseover", () => playSound('hover'))
             .on("click", (event, d) => handleCountryClick(d.properties.name));
 
-        // Draw Microstates (No Tooltips)
         g.selectAll("circle")
             .data(microstates)
             .enter()
@@ -313,5 +319,8 @@ function drawMap() {
         if (!isMultiplayer || isHost) {
             setTimeout(nextTurn, 500); 
         }
+    }).catch(error => {
+        console.error("Failed to load map data: ", error);
+        alert("Failed to load map data. Check your internet connection.");
     });
 }
