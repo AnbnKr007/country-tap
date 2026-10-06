@@ -30,18 +30,41 @@ function playSound(type) {
     }
 }
 
-// --- UI HELPERS (Theme & Modal) ---
+// --- UI HELPERS (Theme, Copy & Modal) ---
 function changeTheme(themeName) {
     document.documentElement.setAttribute('data-theme', themeName);
 }
 
+function copyRoomId() {
+    const id = document.getElementById('room-id-display').innerText;
+    navigator.clipboard.writeText(id).then(() => {
+        const btn = document.getElementById('copy-btn');
+        btn.innerText = "Copied!";
+        setTimeout(() => btn.innerText = "Copy", 2000);
+    });
+}
+
 let modalCallback = null;
-function showModal(title, message, callback) {
+function showModal(title, message, callback, isMultiplayerEnd = false) {
     document.getElementById('modal-title').innerText = title;
     document.getElementById('modal-message').innerText = message;
     document.getElementById('custom-modal').style.display = 'flex';
+    
+    // Switch between "OK" and "Quit Room" depending on the game mode
+    const btn1 = document.getElementById('modal-btn-1');
+    const btnPlayAgain = document.getElementById('modal-btn-play-again');
+    
+    if (isMultiplayerEnd) {
+        btn1.innerText = "Quit Room";
+        btnPlayAgain.style.display = 'block';
+    } else {
+        btn1.innerText = "OK";
+        btnPlayAgain.style.display = 'none';
+    }
+    
     modalCallback = callback;
 }
+
 function closeModal() {
     document.getElementById('custom-modal').style.display = 'none';
     if (modalCallback) modalCallback();
@@ -99,7 +122,8 @@ function hostGame() {
     peer = new Peer();
     isHost = true;
     peer.on('open', (id) => {
-        document.getElementById('room-id-display').innerText = "Room ID: " + id;
+        document.getElementById('room-id-display').innerText = id;
+        document.getElementById('room-container').style.display = 'flex';
     });
     peer.on('connection', (conn) => {
         connection = conn;
@@ -129,28 +153,50 @@ function setupMultiplayer() {
 
     connection.on('data', (data) => {
         if (data.type === 'new_target') {
-            // New round started! Reset the "finished" trackers for the client
             iFinishedRound = false;
             opponentFinishedRound = false;
             currentTarget = data.country;
             document.getElementById('target-country').innerText = currentTarget;
             
         } else if (data.type === 'score_update') {
-            // Opponent found the country!
             opponentScore = data.score;
             document.getElementById('p2-score-text').innerText = " | Opponent: " + opponentScore;
             opponentFinishedRound = true;
             
-            // If we have BOTH found it, and I am the Host, move to the next country
             if (iFinishedRound && opponentFinishedRound && isHost) {
-                // Wait 1 second so the players can register they both got it
                 setTimeout(nextTurn, 1000); 
             }
             
         } else if (data.type === 'game_over') {
-            showModal("You Win!", "Your opponent clicked the wrong country!", () => location.reload());
+            showModal("You Win!", "Your opponent clicked the wrong country!", () => location.reload(), true);
+            
+        } else if (data.type === 'play_again') {
+            // Opponent clicked play again
+            resetMultiplayerState();
         }
     });
+}
+
+function playAgainMultiplayer() {
+    connection.send({ type: 'play_again' });
+    resetMultiplayerState();
+}
+
+function resetMultiplayerState() {
+    myScore = 0;
+    opponentScore = 0;
+    iFinishedRound = false;
+    opponentFinishedRound = false;
+    
+    document.getElementById('p1-score-text').innerText = "Score: " + myScore;
+    document.getElementById('p2-score-text').innerText = " | Opponent: " + opponentScore;
+    document.getElementById('target-country').innerText = "Starting new game...";
+    
+    document.getElementById('custom-modal').style.display = 'none';
+
+    if (isHost) {
+        setTimeout(nextTurn, 1000);
+    }
 }
 
 function nextTurn() {
@@ -206,7 +252,8 @@ function handleCountryClick(clickedName) {
             }
         }
     } else {
-        // WRONG (Instant Death)
+        } else {
+        // WRONG
         playSound('wrong');
         
         if (!isMultiplayer) {
@@ -214,11 +261,13 @@ function handleCountryClick(clickedName) {
                 myScore = 0;
                 document.getElementById('p1-score-text').innerText = "Score: " + myScore;
                 nextTurn();
-            });
+            }, false);
         } else {
             connection.send({ type: 'game_over' });
-            showModal("You Lose!", `Wrong! You clicked ${clickedName}.`, () => location.reload());
+            // Show modal with the Play Again option (true). If they click Quit, reload page.
+            showModal("You Lose!", `Wrong! You clicked ${clickedName}.`, () => location.reload(), true);
         }
+    }
     }
 }
 
