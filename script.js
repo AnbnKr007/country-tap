@@ -57,7 +57,8 @@ let highScore = localStorage.getItem('atlasHighScore') || 0;
 
 let allValidCountries = [];
 let currentTarget = "";
-
+let iFinishedRound = false;
+let opponentFinishedRound = false;
 const microstates = [
     { name: "Vatican", coords: [12.4534, 41.9029] }, { name: "Monaco", coords: [7.4246, 43.7384] },
     { name: "San Marino", coords: [12.4578, 43.9424] }, { name: "Liechtenstein", coords: [9.5209, 47.1410] },
@@ -128,21 +129,37 @@ function setupMultiplayer() {
 
     connection.on('data', (data) => {
         if (data.type === 'new_target') {
+            // New round started! Reset the "finished" trackers for the client
+            iFinishedRound = false;
+            opponentFinishedRound = false;
             currentTarget = data.country;
             document.getElementById('target-country').innerText = currentTarget;
+            
         } else if (data.type === 'score_update') {
+            // Opponent found the country!
             opponentScore = data.score;
             document.getElementById('p2-score-text').innerText = " | Opponent: " + opponentScore;
+            opponentFinishedRound = true;
+            
+            // If we have BOTH found it, and I am the Host, move to the next country
+            if (iFinishedRound && opponentFinishedRound && isHost) {
+                // Wait 1 second so the players can register they both got it
+                setTimeout(nextTurn, 1000); 
+            }
+            
         } else if (data.type === 'game_over') {
             showModal("You Win!", "Your opponent clicked the wrong country!", () => location.reload());
         }
     });
 }
 
-// --- GAMEPLAY LOGIC ---
 function nextTurn() {
     if (isMultiplayer && !isHost) return;
     
+    // Reset trackers for the Host
+    iFinishedRound = false;
+    opponentFinishedRound = false;
+
     const randomIdx = Math.floor(Math.random() * allValidCountries.length);
     currentTarget = allValidCountries[randomIdx];
     document.getElementById('target-country').innerText = currentTarget;
@@ -153,6 +170,11 @@ function nextTurn() {
 }
 
 function handleCountryClick(clickedName) {
+    if (!currentTarget) return; 
+
+    // NEW FIX: If you already clicked the correct country this round, ignore further clicks
+    if (isMultiplayer && iFinishedRound) return; 
+
     if (clickedName === currentTarget) {
         // CORRECT
         playSound('correct');
@@ -160,6 +182,7 @@ function handleCountryClick(clickedName) {
         document.getElementById('p1-score-text').innerText = "Score: " + myScore;
         
         if (!isMultiplayer) {
+            // Solo Mode
             if (myScore > highScore) {
                 highScore = myScore;
                 localStorage.setItem('atlasHighScore', highScore);
@@ -167,11 +190,23 @@ function handleCountryClick(clickedName) {
             }
             nextTurn();
         } else {
+            // Multiplayer Mode: Mark that you finished the round
+            iFinishedRound = true;
             connection.send({ type: 'score_update', score: myScore });
-            if (isHost) nextTurn(); 
+            
+            if (opponentFinishedRound) {
+                // You were the last one to find it!
+                document.getElementById('target-country').innerText = "Both found it! Loading next...";
+                if (isHost) {
+                    setTimeout(nextTurn, 1000); 
+                }
+            } else {
+                // You found it first, now you have to wait for them.
+                document.getElementById('target-country').innerText = "Waiting for opponent...";
+            }
         }
     } else {
-        // WRONG
+        // WRONG (Instant Death)
         playSound('wrong');
         
         if (!isMultiplayer) {
