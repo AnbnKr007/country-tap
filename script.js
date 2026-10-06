@@ -252,7 +252,6 @@ function handleCountryClick(clickedName) {
             }
         }
     } else {
-        } else {
         // WRONG
         playSound('wrong');
         
@@ -268,9 +267,7 @@ function handleCountryClick(clickedName) {
             showModal("You Lose!", `Wrong! You clicked ${clickedName}.`, () => location.reload(), true);
         }
     }
-    }
 }
-
 // --- MAP RENDERING (D3.js) ---
 function drawMap() {
     const svg = d3.select("#map");
