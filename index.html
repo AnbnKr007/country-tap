@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Atlas: Find the Country</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+</head>
+<body>
+
+    <!-- THEME SELECTOR (Floating) -->
+    <div id="theme-container">
+        <label for="theme-select">Theme: </label>
+        <select id="theme-select" onchange="changeTheme(this.value)">
+            <option value="dark-blue">Dark Blue (Default)</option>
+            <option value="black">Pitch Black</option>
+            <option value="white">All White</option>
+            <option value="classic">Classic (Ocean/Land)</option>
+        </select>
+    </div>
+
+    <!-- CUSTOM POPUP MODAL -->
+    <div id="custom-modal" class="modal-overlay">
+        <div class="modal-box">
+            <h2 id="modal-title">Game Over</h2>
+            <p id="modal-message">You clicked the wrong country!</p>
+            <button class="btn-alt" onclick="closeModal()">OK</button>
+        </div>
+    </div>
+
+    <!-- LOBBY SCREEN -->
+    <div id="lobby">
+        <h1>ATLAS: THE WORLD MAP</h1>
+        
+        <div class="panel">
+            <h3>Solo Mode</h3>
+            <p>High Score: <span id="lobby-high-score">0</span></p>
+            <button onclick="startSoloGame()">Play Solo</button>
+        </div>
+
+        <div class="panel">
+            <h3>1v1 Race Mode (Same WiFi)</h3>
+            <p>First to click the correct country gets the point!</p>
+            <button class="btn-alt" onclick="hostGame()">Host Game (Create Room)</button>
+            <p id="room-id-display" style="font-weight: bold; margin-top:10px;"></p>
+            
+            <hr style="border-color: var(--land-fill); margin: 15px 0;">
+            
+            <input type="text" id="join-id" placeholder="Enter Friend's Room ID">
+            <button class="btn-alt" onclick="joinGame()">Join Game</button>
+        </div>
+        <p id="status-message"></p>
+    </div>
+
+    <!-- GAME SCREEN -->
+    <div id="game-ui" style="display: none;">
+        <div id="top-bar">
+            <div id="score-board">
+                <span id="p1-score-text">Score: 0</span> 
+                <span id="p2-score-text" style="display:none;"> | Opponent: 0</span>
+            </div>
+            <div id="target-display">Find: <span id="target-country">...</span></div>
+            <div id="high-score-display">High Score: 0</div>
+        </div>
+        <svg id="map"></svg>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
