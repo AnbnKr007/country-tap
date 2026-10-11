@@ -329,8 +329,8 @@ function drawMap() {
 
     svg.call(d3.zoom().scaleExtent([1, 25]).on("zoom", (event) => {
         g.attr("transform", event.transform);
-        // Allows microstates to scale up enough so they don't get swallowed by thick borders
-        g.selectAll(".microstate").attr("r", 3 / Math.sqrt(event.transform.k));
+        // FIX: Removed the code that shrinks the microstates. 
+        // Now they scale naturally with the map, ensuring thick country borders NEVER swallow them!
     }));
 
     const projection = d3.geoMercator().scale(140).translate([window.innerWidth / 2, window.innerHeight / 1.5]);
@@ -339,9 +339,9 @@ function drawMap() {
     d3.json("https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson").then(data => {
         data.features = data.features.filter(d => !excludedTerritories.includes(d.properties.name));
         
-        // Strip trailing spaces & duplicates just in case the JSON data is dirty
-        const uniqueCountryNames = new Set(data.features.map(d => d.properties.name.trim()));
-        microstates.forEach(m => uniqueCountryNames.add(m.name.trim()));
+        // Strip out duplicate country names caused by multi-polygon GeoJSONs (e.g., islands)
+        const uniqueCountryNames = new Set(data.features.map(d => d.properties.name));
+        microstates.forEach(m => uniqueCountryNames.add(m.name));
         
         allValidCountries = Array.from(uniqueCountryNames);
         availableCountries = [...allValidCountries];
@@ -353,9 +353,8 @@ function drawMap() {
             .append("path")
             .attr("class", "country")
             .attr("d", path)
-            // REMOVED 'vector-effect' to return borders to original thickness
             .on("mouseover", () => playSound('hover'))
-            .on("click", (event, d) => handleCountryClick(d.properties.name.trim()));
+            .on("click", (event, d) => handleCountryClick(d.properties.name));
 
         g.selectAll("circle")
             .data(microstates)
@@ -364,9 +363,9 @@ function drawMap() {
             .attr("class", "microstate")
             .attr("cx", d => projection(d.coords)[0])
             .attr("cy", d => projection(d.coords)[1])
-            .attr("r", 3)
+            .attr("r", 2.5) // Starts at 2.5 and grows natively as you zoom
             .on("mouseover", () => playSound('hover'))
-            .on("click", (event, d) => handleCountryClick(d.name.trim()));
+            .on("click", (event, d) => handleCountryClick(d.name));
 
         if (!isMultiplayer || isHost) {
             setTimeout(nextTurn, 500); 
