@@ -19,7 +19,6 @@ function getAudioContext() {
 
 function playSound(type) {
     if (type === 'hover') {
-        // Prevent console warnings by only playing if context is already running
         if (!audioCtx || audioCtx.state !== 'running') return;
         if (Date.now() - lastHoverTime < 50) return; 
         lastHoverTime = Date.now();
@@ -31,19 +30,18 @@ function playSound(type) {
         
         const now = audioCtx.currentTime;
         osc.type = 'sine'; osc.frequency.value = 600;
-        // Ramping prevents audio "pops" and ensures it's audible
         gain.gain.setValueAtTime(0.05, now);
         gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
         osc.start(now); 
         osc.stop(now + 0.1);
     } 
     else if (type === 'correct') {
-        getAudioContext(); // Ensure context is awake
+        getAudioContext(); 
         sfxCorrect.currentTime = 0; 
         sfxCorrect.play().catch(e => console.warn("Audio file missing or blocked", e));
     } 
     else if (type === 'wrong') {
-        getAudioContext(); // Ensure context is awake
+        getAudioContext(); 
         sfxWrong.currentTime = 0; 
         sfxWrong.play().catch(e => console.warn("Audio file missing or blocked", e));
     }
@@ -94,13 +92,12 @@ let isHost = false;
 let peer, connection;
 let myScore = 0, opponentScore = 0;
 let highScore = 0;
-let nextTurnTimer = null; // Failsafe against double-triggers
+let nextTurnTimer = null; 
 
-// Safe LocalStorage Fetch
 try {
     highScore = parseInt(localStorage.getItem('atlasHighScore'), 10) || 0;
 } catch (e) {
-    console.warn("LocalStorage is disabled. High score won't be saved.");
+    console.warn("LocalStorage is disabled.");
 }
 
 let allValidCountries = [];
@@ -127,6 +124,14 @@ const microstates = [
 ];
 
 const excludedTerritories = ["Antarctica", "Greenland", "Falkland Islands", "Western Sahara", "French Southern and Antarctic Lands", "New Caledonia", "Puerto Rico"];
+
+// Randomize array in-place (Fisher-Yates shuffle)
+function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+}
 
 // --- INITIALIZATION ---
 document.getElementById('lobby-high-score').innerText = highScore;
@@ -207,7 +212,7 @@ function checkRoundComplete() {
     if (iFinishedRound && opponentFinishedRound) {
         document.getElementById('target-country').innerText = "Both found it! Loading next...";
         if (isHost) {
-            clearTimeout(nextTurnTimer); // Prevent double firing
+            clearTimeout(nextTurnTimer); 
             nextTurnTimer = setTimeout(nextTurn, 1000);
         }
     } else {
@@ -226,6 +231,7 @@ function resetMultiplayerState() {
     iFinishedRound = false;
     opponentFinishedRound = false;
     availableCountries = [...allValidCountries];
+    shuffleArray(availableCountries); // Shuffle deck for new game
     
     document.getElementById('p1-score-text').innerText = "Score: " + myScore;
     document.getElementById('p2-score-text').innerText = " | Opponent: " + opponentScore;
@@ -256,16 +262,15 @@ function nextTurn() {
                 myScore = 0;
                 document.getElementById('p1-score-text').innerText = "Score: " + myScore;
                 availableCountries = [...allValidCountries]; 
+                shuffleArray(availableCountries); // Reshuffle for new run
                 nextTurn();
             }
         }, isMultiplayer);
         return;
     }
 
-    const randomIdx = Math.floor(Math.random() * availableCountries.length);
-    currentTarget = availableCountries[randomIdx];
-    availableCountries.splice(randomIdx, 1);
-
+    // Pull from the end of the shuffled deck - mathematically guarantees no repeats!
+    currentTarget = availableCountries.pop();
     document.getElementById('target-country').innerText = currentTarget;
 
     if (isMultiplayer && isHost) {
@@ -303,7 +308,8 @@ function handleCountryClick(clickedName) {
             showModal("Game Over", `Wrong! You clicked ${clickedName}.\nFinal Score: ${myScore}`, () => {
                 myScore = 0;
                 document.getElementById('p1-score-text').innerText = "Score: " + myScore;
-                availableCountries = [...allValidCountries]; 
+                availableCountries = [...allValidCountries];
+                shuffleArray(availableCountries); // Reshuffle on game over
                 nextTurn();
             }, false);
         } else {
@@ -316,11 +322,15 @@ function handleCountryClick(clickedName) {
 // --- MAP RENDERING (D3.js) ---
 function drawMap() {
     const svg = d3.select("#map");
+    // PREVENTS BUG: Clear existing map if user restarts game without refreshing page
+    svg.selectAll("*").remove(); 
+    
     const g = svg.append("g");
 
     svg.call(d3.zoom().scaleExtent([1, 25]).on("zoom", (event) => {
         g.attr("transform", event.transform);
-        g.selectAll(".microstate").attr("r", 3 / event.transform.k);
+        // Keeps the circle perfectly visible at 4px screen size no matter the zoom
+        g.selectAll(".microstate").attr("r", 4 / event.transform.k);
     }));
 
     const projection = d3.geoMercator().scale(140).translate([window.innerWidth / 2, window.innerHeight / 1.5]);
@@ -329,10 +339,13 @@ function drawMap() {
     d3.json("https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson").then(data => {
         data.features = data.features.filter(d => !excludedTerritories.includes(d.properties.name));
         
-        allValidCountries = data.features.map(d => d.properties.name);
-        microstates.forEach(m => allValidCountries.push(m.name));
+        // Strip trailing spaces & duplicates just in case the JSON data is dirty
+        const uniqueCountryNames = new Set(data.features.map(d => d.properties.name.trim()));
+        microstates.forEach(m => uniqueCountryNames.add(m.name.trim()));
         
+        allValidCountries = Array.from(uniqueCountryNames);
         availableCountries = [...allValidCountries];
+        shuffleArray(availableCountries); // Shuffle the deck on load!
 
         g.selectAll("path")
             .data(data.features)
@@ -340,8 +353,10 @@ function drawMap() {
             .append("path")
             .attr("class", "country")
             .attr("d", path)
+            // PREVENTS BUG: Keeps borders visually 1px thin so they don't cover microstates!
+            .attr("vector-effect", "non-scaling-stroke") 
             .on("mouseover", () => playSound('hover'))
-            .on("click", (event, d) => handleCountryClick(d.properties.name));
+            .on("click", (event, d) => handleCountryClick(d.properties.name.trim()));
 
         g.selectAll("circle")
             .data(microstates)
@@ -350,9 +365,10 @@ function drawMap() {
             .attr("class", "microstate")
             .attr("cx", d => projection(d.coords)[0])
             .attr("cy", d => projection(d.coords)[1])
-            .attr("r", 3)
+            .attr("r", 4)
+            .attr("vector-effect", "non-scaling-stroke") 
             .on("mouseover", () => playSound('hover'))
-            .on("click", (event, d) => handleCountryClick(d.name));
+            .on("click", (event, d) => handleCountryClick(d.name.trim()));
 
         if (!isMultiplayer || isHost) {
             setTimeout(nextTurn, 500); 
