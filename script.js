@@ -329,8 +329,8 @@ function drawMap() {
 
     svg.call(d3.zoom().scaleExtent([1, 25]).on("zoom", (event) => {
         g.attr("transform", event.transform);
-        // Keeps the circle perfectly visible at 4px screen size no matter the zoom
-        g.selectAll(".microstate").attr("r", 4 / event.transform.k);
+        // Allows microstates to scale up enough so they don't get swallowed by thick borders
+        g.selectAll(".microstate").attr("r", 3 / Math.sqrt(event.transform.k));
     }));
 
     const projection = d3.geoMercator().scale(140).translate([window.innerWidth / 2, window.innerHeight / 1.5]);
@@ -353,8 +353,7 @@ function drawMap() {
             .append("path")
             .attr("class", "country")
             .attr("d", path)
-            // PREVENTS BUG: Keeps borders visually 1px thin so they don't cover microstates!
-            .attr("vector-effect", "non-scaling-stroke") 
+            // REMOVED 'vector-effect' to return borders to original thickness
             .on("mouseover", () => playSound('hover'))
             .on("click", (event, d) => handleCountryClick(d.properties.name.trim()));
 
@@ -365,8 +364,7 @@ function drawMap() {
             .attr("class", "microstate")
             .attr("cx", d => projection(d.coords)[0])
             .attr("cy", d => projection(d.coords)[1])
-            .attr("r", 4)
-            .attr("vector-effect", "non-scaling-stroke") 
+            .attr("r", 3)
             .on("mouseover", () => playSound('hover'))
             .on("click", (event, d) => handleCountryClick(d.name.trim()));
 
