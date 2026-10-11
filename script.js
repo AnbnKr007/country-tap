@@ -19,25 +19,31 @@ function getAudioContext() {
 
 function playSound(type) {
     if (type === 'hover') {
-        const ctx = getAudioContext();
+        // Prevent console warnings by only playing if context is already running
+        if (!audioCtx || audioCtx.state !== 'running') return;
         if (Date.now() - lastHoverTime < 50) return; 
         lastHoverTime = Date.now();
         
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
         osc.connect(gain);
-        gain.connect(ctx.destination);
+        gain.connect(audioCtx.destination);
         
-        const now = ctx.currentTime;
+        const now = audioCtx.currentTime;
         osc.type = 'sine'; osc.frequency.value = 600;
-        gain.gain.setValueAtTime(0.01, now);
-        osc.start(now); osc.stop(now + 0.05);
+        // Ramping prevents audio "pops" and ensures it's audible
+        gain.gain.setValueAtTime(0.05, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+        osc.start(now); 
+        osc.stop(now + 0.1);
     } 
     else if (type === 'correct') {
+        getAudioContext(); // Ensure context is awake
         sfxCorrect.currentTime = 0; 
         sfxCorrect.play().catch(e => console.warn("Audio file missing or blocked", e));
     } 
     else if (type === 'wrong') {
+        getAudioContext(); // Ensure context is awake
         sfxWrong.currentTime = 0; 
         sfxWrong.play().catch(e => console.warn("Audio file missing or blocked", e));
     }
@@ -88,15 +94,17 @@ let isHost = false;
 let peer, connection;
 let myScore = 0, opponentScore = 0;
 let highScore = 0;
+let nextTurnTimer = null; // Failsafe against double-triggers
 
 // Safe LocalStorage Fetch
 try {
-    highScore = localStorage.getItem('atlasHighScore') || 0;
+    highScore = parseInt(localStorage.getItem('atlasHighScore'), 10) || 0;
 } catch (e) {
     console.warn("LocalStorage is disabled. High score won't be saved.");
 }
 
 let allValidCountries = [];
+let availableCountries = []; 
 let currentTarget = "";
 let iFinishedRound = false;
 let opponentFinishedRound = false;
@@ -181,18 +189,30 @@ function setupMultiplayer() {
             opponentScore = data.score;
             document.getElementById('p2-score-text').innerText = " | Opponent: " + opponentScore;
             opponentFinishedRound = true;
-            
-            if (iFinishedRound && opponentFinishedRound && isHost) {
-                setTimeout(nextTurn, 1000); 
-            }
+            checkRoundComplete();
             
         } else if (data.type === 'game_over') {
             showModal("You Win!", "Your opponent clicked the wrong country!", () => location.reload(), true);
+            
+        } else if (data.type === 'game_cleared') {
+            showModal("Incredible!", "You both found every single country! Well done!", () => location.reload(), true);
             
         } else if (data.type === 'play_again') {
             resetMultiplayerState();
         }
     });
+}
+
+function checkRoundComplete() {
+    if (iFinishedRound && opponentFinishedRound) {
+        document.getElementById('target-country').innerText = "Both found it! Loading next...";
+        if (isHost) {
+            clearTimeout(nextTurnTimer); // Prevent double firing
+            nextTurnTimer = setTimeout(nextTurn, 1000);
+        }
+    } else {
+        document.getElementById('target-country').innerText = "Waiting for opponent...";
+    }
 }
 
 function playAgainMultiplayer() {
@@ -205,6 +225,7 @@ function resetMultiplayerState() {
     opponentScore = 0;
     iFinishedRound = false;
     opponentFinishedRound = false;
+    availableCountries = [...allValidCountries];
     
     document.getElementById('p1-score-text').innerText = "Score: " + myScore;
     document.getElementById('p2-score-text').innerText = " | Opponent: " + opponentScore;
@@ -213,7 +234,8 @@ function resetMultiplayerState() {
     document.getElementById('custom-modal').style.display = 'none';
 
     if (isHost) {
-        setTimeout(nextTurn, 1000);
+        clearTimeout(nextTurnTimer);
+        nextTurnTimer = setTimeout(nextTurn, 1000);
     }
 }
 
@@ -223,8 +245,27 @@ function nextTurn() {
     iFinishedRound = false;
     opponentFinishedRound = false;
 
-    const randomIdx = Math.floor(Math.random() * allValidCountries.length);
-    currentTarget = allValidCountries[randomIdx];
+    if (availableCountries.length === 0) {
+        if (isMultiplayer && isHost) {
+            connection.send({ type: 'game_cleared' });
+        }
+        showModal("Incredible!", "You've successfully found every country! Well done!", () => {
+            if (isMultiplayer) {
+                location.reload();
+            } else {
+                myScore = 0;
+                document.getElementById('p1-score-text').innerText = "Score: " + myScore;
+                availableCountries = [...allValidCountries]; 
+                nextTurn();
+            }
+        }, isMultiplayer);
+        return;
+    }
+
+    const randomIdx = Math.floor(Math.random() * availableCountries.length);
+    currentTarget = availableCountries[randomIdx];
+    availableCountries.splice(randomIdx, 1);
+
     document.getElementById('target-country').innerText = currentTarget;
 
     if (isMultiplayer && isHost) {
@@ -253,13 +294,7 @@ function handleCountryClick(clickedName) {
         } else {
             iFinishedRound = true;
             connection.send({ type: 'score_update', score: myScore });
-            
-            if (opponentFinishedRound) {
-                document.getElementById('target-country').innerText = "Both found it! Loading next...";
-                if (isHost) setTimeout(nextTurn, 1000); 
-            } else {
-                document.getElementById('target-country').innerText = "Waiting for opponent...";
-            }
+            checkRoundComplete();
         }
     } else {
         playSound('wrong');
@@ -268,6 +303,7 @@ function handleCountryClick(clickedName) {
             showModal("Game Over", `Wrong! You clicked ${clickedName}.\nFinal Score: ${myScore}`, () => {
                 myScore = 0;
                 document.getElementById('p1-score-text').innerText = "Score: " + myScore;
+                availableCountries = [...allValidCountries]; 
                 nextTurn();
             }, false);
         } else {
@@ -295,6 +331,8 @@ function drawMap() {
         
         allValidCountries = data.features.map(d => d.properties.name);
         microstates.forEach(m => allValidCountries.push(m.name));
+        
+        availableCountries = [...allValidCountries];
 
         g.selectAll("path")
             .data(data.features)
